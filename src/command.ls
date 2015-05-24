@@ -3,7 +3,7 @@ require! {
   path
   fs
   util
-  'prelude-ls': {each, break-list, keys, filter, dasherize, map}:prelude
+  'prelude-ls': {each, break-list, keys, filter, dasherize, map, lines, unlines, take}:prelude
   './options': {parse: parse-options, generate-help}
   './util': {name-from-path}
   'source-map': {SourceNode}
@@ -26,6 +26,10 @@ pp = (x, show-hidden, depth) !->
 ppp = !-> pp it, true, null
 dasherize-vars = (str) -> if /^[a-z]/ is str then dasherize str else str
 starts-with = (str) -> (.index-of(str) is 0)
+file-exists = (path) ->
+  try
+    fs.stat-sync path
+    true
 
 try
   o = parse-options args
@@ -248,6 +252,8 @@ function output-filename filename, json
 # - __^C__: Cancel input if any. Quit otherwise.
 # - __??__: <https://github.com/joyent/node/blob/master/lib/readline.js>
 !function repl
+  MAX-HISTORY-SIZE = 500
+  history-file = path.join process.env.HOME, '/.lsc_history'
   code   = if repl.infunc then '  ' else ''
   cont   = 0
   rl     = require 'readline' .create-interface process.stdin, process.stdout
@@ -262,6 +268,7 @@ function output-filename filename, json
     _tty-write ...
   prompt = 'ls'
   prompt += " -#that" if 'b' * !!o.bare + 'c' * !!o.compile
+  try rl.history = lines <| fs.read-file-sync history-file, 'utf-8' .trim!
   LiveScript.history = rl.history if LiveScript?
   unless o.compile
     module.paths = module.constructor._node-module-paths \
@@ -324,7 +331,11 @@ function output-filename filename, json
     catch then say e
     reset!
   process.on 'uncaughtException' !-> say "\n#{ it?stack or it }"
-  process.on 'exit'              !-> rl._tty-write '\r' if code and rl.output.is-TTY
+  process.on 'exit' !->
+    rl._tty-write '\r' if code and rl.output.is-TTY
+    if file-exists history-file
+      (unlines . take MAX-HISTORY-SIZE) rl.history
+      |> fs.write-file-sync history-file, _
   rl.set-prompt "#prompt> "
   rl.prompt!
 
